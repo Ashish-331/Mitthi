@@ -109,7 +109,7 @@ export default function Login({ onSuccess }) {
             <img src={mascotLogo} alt="Study Bloom bunny mascot" />
             <span className="logo-spark"><Sparkles size={15} strokeWidth={2.3} /></span>
           </div>
-          <div className="portal-pill">DAILY ASPIRANT PORTAL <span>•</span> NEET 2026</div>
+          <div className="portal-pill">BHARGAVI&apos;S STUDY SPACE <span>•</span> NEET 2026</div>
           <h1>Study <span>Bloom</span></h1>
           <p className="login-subtitle">Preparation companion · Physics &amp; Chemistry focus</p>
         </div>

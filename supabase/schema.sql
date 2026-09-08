@@ -10,11 +10,16 @@ create table if not exists chapters (
   race_count int default 0,
   neet_pyq_count int default 0,
   jee_pyq_count int default 0,
+  ncert_revised_count int default 0,
   confidence int default 3,
   last_revised timestamptz,
   notes text default '',
   updated_at timestamptz default now()
 );
+
+-- Safe to run for an existing tracker: adds Biology's NCERT revision counter.
+alter table chapters
+  add column if not exists ncert_revised_count int default 0;
 
 -- Row Level Security is on by default for new tables via the dashboard,
 -- but we enable it explicitly and add an open policy.

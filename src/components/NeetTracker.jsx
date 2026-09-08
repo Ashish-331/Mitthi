@@ -1,15 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ChevronDown, Plus, Trash2, RotateCcw, BookOpen, FlaskConical, Search, LogOut, Flower2, Ribbon, Sparkles, Star, Cloud, Target } from "lucide-react";
+import { ChevronDown, Plus, Trash2, RotateCcw, BookOpen, FlaskConical, Search, LogOut, Flower2, Ribbon, Sparkles, Star, Cloud, Target, Dna } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import mascotLogo from "../../study_bloom_bunny_mascot_logo.png";
 import {
-  PHYSICS_CHAPTERS, CHEMISTRY_CHAPTERS, RACE_STATES, RACE_COLORS,
+  PHYSICS_CHAPTERS, CHEMISTRY_CHAPTERS, BIOLOGY_CHAPTERS, RACE_STATES, RACE_COLORS,
   chapterId, defaultChapterRow
 } from "../lib/chapterData";
 
 const SUBJECT_META = {
   Physics: { accent: "#C92F6D", icon: BookOpen, chapters: PHYSICS_CHAPTERS },
-  Chemistry: { accent: "#8D1749", icon: FlaskConical, chapters: CHEMISTRY_CHAPTERS }
+  Chemistry: { accent: "#8D1749", icon: FlaskConical, chapters: CHEMISTRY_CHAPTERS },
+  Biology: { accent: "#A84364", icon: Dna, chapters: BIOLOGY_CHAPTERS }
 };
 
 function buildSkeleton(subject) {
@@ -112,30 +113,40 @@ function MiniStat({ label, value, accent, delay }) {
 function SubjectDashboard({ subject, entries }) {
   const meta = SUBJECT_META[subject];
   const Icon = meta.icon;
+  const isBiology = subject === "Biology";
   const total = meta.chapters.length;
   const completed = entries.filter(d => d.race === "Completed").length;
-  const pct = total ? Math.round((completed / total) * 100) : 0;
+  const revisedChapters = entries.filter(d => (d.ncert_revised_count || 0) > 0).length;
+  const progressCount = isBiology ? revisedChapters : completed;
+  const pct = total ? Math.round((progressCount / total) * 100) : 0;
   const raceRuns = entries.reduce((s, d) => s + (d.race_count || 0), 0);
   const neetPyq = entries.reduce((s, d) => s + (d.neet_pyq_count || 0), 0);
   const jeePyq = entries.reduce((s, d) => s + (d.jee_pyq_count || 0), 0);
   const modulesDone = entries.reduce((s, d) => s + (d.modules_count || 0), 0);
+  const ncertRevisions = entries.reduce((s, d) => s + (d.ncert_revised_count || 0), 0);
 
   return (
-    <div className="dashboard-card" style={{ background: "rgba(255,255,255,.82)", border: "1px solid rgba(255,255,255,.9)", borderRadius: 19, padding: "16px 18px", flex: 1, minWidth: 260 }}>
+    <div className={`dashboard-card ${isBiology ? "biology-dashboard" : ""}`} style={{ background: "rgba(255,255,255,.82)", border: "1px solid rgba(255,255,255,.9)", borderRadius: 19, padding: "16px 18px", flex: 1, minWidth: 260 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
         <Icon size={15} color={meta.accent} />
         <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 15, fontWeight: 600, color: meta.accent }}>{subject}</span>
-        <span style={{ fontSize: 11.5, color: "#AE6B86", marginLeft: "auto", fontFamily: "'IBM Plex Mono', monospace" }}>{completed}/{total} chapters</span>
+        <span style={{ fontSize: 11.5, color: "#AE6B86", marginLeft: "auto", fontFamily: "'IBM Plex Mono', monospace" }}>{progressCount}/{total} chapters</span>
       </div>
       <div style={{ width: "100%", height: 5, background: "#F8D9E5", borderRadius: 3, overflow: "hidden", marginBottom: 12 }}>
         <div style={{ width: `${pct}%`, height: "100%", background: meta.accent, borderRadius: 3, transition: "width 0.6s cubic-bezier(0.22,1,0.36,1)" }} />
       </div>
       <div className="stats-row" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <MiniStat label="COMPLETE" value={pct} accent={meta.accent} delay={0} />
-        <MiniStat label="MODULES" value={modulesDone} accent={meta.accent} delay={60} />
-        <MiniStat label="RACE RUNS" value={raceRuns} accent={meta.accent} delay={120} />
-        <MiniStat label="NEET PYQ" value={neetPyq} accent={meta.accent} delay={180} />
-        <MiniStat label="JEE PYQ" value={jeePyq} accent={meta.accent} delay={240} />
+        {isBiology ? (
+          <MiniStat label="NCERT REVISED" value={ncertRevisions} accent={meta.accent} delay={0} />
+        ) : (
+          <>
+            <MiniStat label="COMPLETE" value={pct} accent={meta.accent} delay={0} />
+            <MiniStat label="MODULES" value={modulesDone} accent={meta.accent} delay={60} />
+            <MiniStat label="RACE RUNS" value={raceRuns} accent={meta.accent} delay={120} />
+            <MiniStat label="NEET PYQ" value={neetPyq} accent={meta.accent} delay={180} />
+            <MiniStat label="JEE PYQ" value={jeePyq} accent={meta.accent} delay={240} />
+          </>
+        )}
       </div>
     </div>
   );
@@ -146,6 +157,7 @@ function ChapterRow({ data, onUpdate, onDelete, accent }) {
   const [localNotes, setLocalNotes] = useState(data.notes || "");
   const [localModules, setLocalModules] = useState(data.modules_text || "");
   const debounceTimer = useRef(null);
+  const isBiology = data.subject === "Biology";
 
   useEffect(() => { setLocalNotes(data.notes || ""); setLocalModules(data.modules_text || ""); }, [data.name]);
 
@@ -179,7 +191,7 @@ function ChapterRow({ data, onUpdate, onDelete, accent }) {
     <div style={{
       border: "1px solid rgba(237,164,194,.42)", borderRadius: 15, marginBottom: 10, background: "rgba(255,255,255,.9)", overflow: "hidden",
       borderLeft: needsAttention ? "3px solid #C92F6D" : "1px solid rgba(237,164,194,.42)"
-    }} className="chapter-card">
+    }} className={`chapter-card ${isBiology ? "biology-chapter" : ""}`}>
       <div className="chapter-heading" style={{ display: "flex", alignItems: "center", padding: "12px 14px", gap: 10, cursor: "pointer", flexWrap: "wrap" }}
         onClick={() => setExpanded(e => !e)}>
         <ChevronDown size={15} color="#A2647D" style={{
@@ -188,26 +200,34 @@ function ChapterRow({ data, onUpdate, onDelete, accent }) {
         }} />
         <div className="chapter-name" style={{ flex: "1 1 160px", minWidth: 140 }}>
           <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 14, fontWeight: 600, color: "#65102F" }}>{data.name}</div>
-          {data.modules_text && (
+          {!isBiology && data.modules_text && (
             <div style={{ fontSize: 11, color: "#A2647D", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {data.modules_text}
             </div>
           )}
         </div>
-        <div onClick={e => e.stopPropagation()}><StatusBadge status={data.race} onClick={cycleRace} /></div>
+        {!isBiology && <div onClick={e => e.stopPropagation()}><StatusBadge status={data.race} onClick={cycleRace} /></div>}
         <div className="chapter-actions" onClick={e => e.stopPropagation()} style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <Counter label="MODULES" value={data.modules_count || 0} accent={accent}
-            onIncrement={() => onUpdate({ modules_count: (data.modules_count || 0) + 1 })}
-            onDecrement={() => onUpdate({ modules_count: Math.max(0, (data.modules_count || 0) - 1) })} />
-          <Counter label="RACE" value={data.race_count || 0} accent={accent}
-            onIncrement={() => onUpdate({ race_count: (data.race_count || 0) + 1 })}
-            onDecrement={() => onUpdate({ race_count: Math.max(0, (data.race_count || 0) - 1) })} />
-          <Counter label="NEET PYQ" value={data.neet_pyq_count || 0} accent={accent}
-            onIncrement={() => onUpdate({ neet_pyq_count: (data.neet_pyq_count || 0) + 1 })}
-            onDecrement={() => onUpdate({ neet_pyq_count: Math.max(0, (data.neet_pyq_count || 0) - 1) })} />
-          <Counter label="JEE PYQ" value={data.jee_pyq_count || 0} accent={accent}
-            onIncrement={() => onUpdate({ jee_pyq_count: (data.jee_pyq_count || 0) + 1 })}
-            onDecrement={() => onUpdate({ jee_pyq_count: Math.max(0, (data.jee_pyq_count || 0) - 1) })} />
+          {isBiology ? (
+            <Counter label="NCERT REVISED" value={data.ncert_revised_count || 0} accent={accent}
+              onIncrement={() => onUpdate({ ncert_revised_count: (data.ncert_revised_count || 0) + 1, last_revised: new Date().toISOString() })}
+              onDecrement={() => onUpdate({ ncert_revised_count: Math.max(0, (data.ncert_revised_count || 0) - 1) })} />
+          ) : (
+            <>
+              <Counter label="MODULES" value={data.modules_count || 0} accent={accent}
+                onIncrement={() => onUpdate({ modules_count: (data.modules_count || 0) + 1 })}
+                onDecrement={() => onUpdate({ modules_count: Math.max(0, (data.modules_count || 0) - 1) })} />
+              <Counter label="RACE" value={data.race_count || 0} accent={accent}
+                onIncrement={() => onUpdate({ race_count: (data.race_count || 0) + 1 })}
+                onDecrement={() => onUpdate({ race_count: Math.max(0, (data.race_count || 0) - 1) })} />
+              <Counter label="NEET PYQ" value={data.neet_pyq_count || 0} accent={accent}
+                onIncrement={() => onUpdate({ neet_pyq_count: (data.neet_pyq_count || 0) + 1 })}
+                onDecrement={() => onUpdate({ neet_pyq_count: Math.max(0, (data.neet_pyq_count || 0) - 1) })} />
+              <Counter label="JEE PYQ" value={data.jee_pyq_count || 0} accent={accent}
+                onIncrement={() => onUpdate({ jee_pyq_count: (data.jee_pyq_count || 0) + 1 })}
+                onDecrement={() => onUpdate({ jee_pyq_count: Math.max(0, (data.jee_pyq_count || 0) - 1) })} />
+            </>
+          )}
         </div>
         <button className="delete-chapter" onClick={e => { e.stopPropagation(); onDelete(); }} style={{
           background: "none", border: "none", color: "#D78AAA", cursor: "pointer", padding: 4, flexShrink: 0
@@ -223,15 +243,17 @@ function ChapterRow({ data, onUpdate, onDelete, accent }) {
         transition: "max-height 0.32s cubic-bezier(0.22,1,0.36,1), opacity 0.25s ease", overflow: "hidden"
       }}>
         <div className="chapter-details" style={{ padding: "4px 14px 16px 41px", borderTop: "1px solid #F9DCE8", display: "flex", flexDirection: "column", gap: 12 }}>
-          <div>
-            <label style={{ fontSize: 11, color: "#A2647D", display: "block", marginBottom: 4 }}>Module names / sub-topics</label>
-            <input
-              value={localModules}
-              onChange={e => handleModulesTextChange(e.target.value)}
-              placeholder="e.g. Newton's laws, friction, circular motion"
-              style={{ width: "100%", padding: "7px 10px", borderRadius: 7, border: "1px solid #E0DDD5", fontSize: 13, fontFamily: "inherit", boxSizing: "border-box" }}
-            />
-          </div>
+          {!isBiology && (
+            <div>
+              <label style={{ fontSize: 11, color: "#A2647D", display: "block", marginBottom: 4 }}>Module names / sub-topics</label>
+              <input
+                value={localModules}
+                onChange={e => handleModulesTextChange(e.target.value)}
+                placeholder="e.g. Newton's laws, friction, circular motion"
+                style={{ width: "100%", padding: "7px 10px", borderRadius: 7, border: "1px solid #E0DDD5", fontSize: 13, fontFamily: "inherit", boxSizing: "border-box" }}
+              />
+            </div>
+          )}
           <div style={{ display: "flex", gap: 20, alignItems: "center", flexWrap: "wrap" }}>
             <div>
               <label style={{ fontSize: 11, color: "#A2647D", display: "block", marginBottom: 4 }}>Confidence</label>
@@ -250,12 +272,12 @@ function ChapterRow({ data, onUpdate, onDelete, accent }) {
                 <span style={{ fontSize: 12.5, color: "#7A3150" }}>
                   {daysAgo === null ? "Never" : daysAgo === 0 ? "Today" : `${daysAgo}d ago`}
                 </span>
-                <button onClick={markRevisedToday} style={{
+                {!isBiology && <button onClick={markRevisedToday} style={{
                   fontSize: 11.5, padding: "4px 9px", borderRadius: 6, border: "1px solid #F0C3D5",
                   background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: "#7A3150"
                 }}>
                   <RotateCcw size={11} /> Mark revised
-                </button>
+                </button>}
               </div>
             </div>
           </div>
@@ -274,7 +296,7 @@ function ChapterRow({ data, onUpdate, onDelete, accent }) {
 }
 
 export default function NeetTracker({ onLogout }) {
-  const [chapters, setChapters] = useState(() => ({ ...buildSkeleton("Physics"), ...buildSkeleton("Chemistry") }));
+  const [chapters, setChapters] = useState(() => ({ ...buildSkeleton("Physics"), ...buildSkeleton("Chemistry"), ...buildSkeleton("Biology") }));
   const [hydrated, setHydrated] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [subject, setSubject] = useState("Physics");
@@ -294,12 +316,13 @@ export default function NeetTracker({ onLogout }) {
         const existingIds = new Set((existingRows || []).map(r => r.id));
         const allDefaults = [
           ...PHYSICS_CHAPTERS.map(name => defaultChapterRow("Physics", name)),
-          ...CHEMISTRY_CHAPTERS.map(name => defaultChapterRow("Chemistry", name))
+          ...CHEMISTRY_CHAPTERS.map(name => defaultChapterRow("Chemistry", name)),
+          ...BIOLOGY_CHAPTERS.map(name => defaultChapterRow("Biology", name))
         ];
         const missing = allDefaults.filter(row => !existingIds.has(row.id));
 
         if (missing.length > 0) {
-          const { error: insertErr } = await supabase.from("chapters").insert(missing);
+          const { error: insertErr } = await supabase.from("chapters").upsert(missing, { onConflict: "id", ignoreDuplicates: true });
           if (insertErr) throw insertErr;
         }
 
@@ -358,15 +381,17 @@ export default function NeetTracker({ onLogout }) {
 
   const subjectChapters = Object.entries(chapters).filter(([, d]) => d.subject === subject);
   const filtered = subjectChapters.filter(([, d]) => {
-    if (filter !== "All" && d.race !== filter) return false;
+    if (subject !== "Biology" && filter !== "All" && d.race !== filter) return false;
     if (search && !d.name.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
 
   const physicsEntries = Object.values(chapters).filter(d => d.subject === "Physics");
   const chemEntries = Object.values(chapters).filter(d => d.subject === "Chemistry");
-  const completedChapters = [...physicsEntries, ...chemEntries].filter(d => d.race === "Completed").length;
-  const totalChapters = physicsEntries.length + chemEntries.length;
+  const bioEntries = Object.values(chapters).filter(d => d.subject === "Biology");
+  const completedChapters = [...physicsEntries, ...chemEntries].filter(d => d.race === "Completed").length
+    + bioEntries.filter(d => (d.ncert_revised_count || 0) > 0).length;
+  const totalChapters = physicsEntries.length + chemEntries.length + bioEntries.length;
   const meta = SUBJECT_META[subject];
 
   return (
@@ -435,6 +460,7 @@ export default function NeetTracker({ onLogout }) {
           .target-callout { align-self: stretch; min-height: 42px; justify-content: center; white-space: normal; text-align: center; }
           .dashboard-card { min-width: 100% !important; padding: 15px !important; border-radius: 20px !important; }
           .stats-row { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px !important; }
+          .biology-dashboard .stats-row { grid-template-columns: minmax(0, 1fr); }
           .mini-stat { min-width: 0 !important; text-align: center; }
           .mini-stat > div:first-child { font-size: 8px !important; white-space: nowrap; }
           .mini-stat > div:last-child { font-size: 17px !important; }
@@ -449,8 +475,10 @@ export default function NeetTracker({ onLogout }) {
           .chapter-heading { padding: 14px 12px !important; gap: 9px !important; }
           .chapter-name { flex-basis: calc(100% - 36px) !important; min-width: 0 !important; }
           .status-badge { min-height: 38px; padding: 7px 11px !important; font-size: 12px !important; }
-          .chapter-actions { width: 100%; display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px !important; padding-top: 4px; }
-          .counter-control { min-width: 0 !important; gap: 5px !important; }
+          .chapter-actions { width: 100%; display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 8px !important; padding-top: 7px; }
+          .biology-chapter .chapter-actions { grid-template-columns: minmax(0, 1fr); }
+          .counter-control { min-width: 0 !important; gap: 5px !important; padding: 8px 4px; border: 1px solid #f9dce8; border-radius: 13px; background: #fffafd; }
+          .counter-control > div { justify-content: center; }
           .counter-label { font-size: 8px !important; white-space: nowrap; }
           .counter-button { width: 33px !important; height: 33px !important; border-radius: 10px !important; font-size: 17px !important; }
           .counter-value { min-width: 18px !important; font-size: 16px !important; }
@@ -477,13 +505,13 @@ export default function NeetTracker({ onLogout }) {
           <div className="brand-lockup">
             <div className="brand-mascot"><img src={mascotLogo} alt="Study Bloom bunny mascot" /></div>
             <div>
-              <div className="brand-badge"><Flower2 size={13} strokeWidth={2} /><Ribbon size={13} strokeWidth={2} /> STUDY BLOOM <small>v2.4</small></div>
+              <div className="brand-badge"><Flower2 size={13} strokeWidth={2} /><Ribbon size={13} strokeWidth={2} /> STUDY BLOOM</div>
               <h1 className="brand-title">Bhargavi&apos;s NEET Tracker</h1>
-              <p className="brand-subtitle">Physics &amp; Chemistry — modules, race cycles, PYQ counters</p>
+              <p className="brand-subtitle">Physics &amp; Chemistry — study progress, revisions &amp; PYQs</p>
             </div>
           </div>
           <div className="header-actions">
-            <div className="sync-pill"><span className="sync-dot" /> <span>{saveError ? "Save issue" : hydrated ? "Synced" : "Syncing"}</span><Cloud size={14} strokeWidth={2} /></div>
+            <div className="sync-pill"><span className="sync-dot" /> <span>{saveError ? "Needs attention" : hydrated ? "Saved" : "Saving"}</span><Cloud size={14} strokeWidth={2} /></div>
             <button className="logout-button" onClick={handleLogout}><LogOut size={14} /> Log out</button>
           </div>
         </header>
@@ -492,7 +520,7 @@ export default function NeetTracker({ onLogout }) {
           <div className="cheer-copy">
             <div className="cheer-mascot"><img src={mascotLogo} alt="Study Bloom mascot" /></div>
             <div>
-              <div className="cheer-eyebrow"><Sparkles size={13} /> Mascot cheering station</div>
+              <div className="cheer-eyebrow"><Sparkles size={13} /> A little cheer for you</div>
               <p className="cheer-text">Keep going, Bhargavi! You&apos;re doing amazing. ({completedChapters}/{totalChapters} completed)</p>
             </div>
           </div>
@@ -502,10 +530,11 @@ export default function NeetTracker({ onLogout }) {
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
           <SubjectDashboard subject="Physics" entries={physicsEntries} />
           <SubjectDashboard subject="Chemistry" entries={chemEntries} />
+          <SubjectDashboard subject="Biology" entries={bioEntries} />
         </div>
 
         <div className="subject-tabs" style={{ display: "inline-flex", background: "rgba(247,206,222,.68)", borderRadius: 12, padding: 3, marginBottom: 16, border: "1px solid rgba(255,255,255,.75)" }}>
-          {["Physics", "Chemistry"].map(s => {
+          {["Physics", "Chemistry", "Biology"].map(s => {
             const Icon = SUBJECT_META[s].icon;
             const active = subject === s;
             return (
@@ -522,7 +551,7 @@ export default function NeetTracker({ onLogout }) {
         </div>
 
         <div className="filter-bar" style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-          <div className="filter-chip-row">
+          {subject !== "Biology" && <div className="filter-chip-row">
             {["All", ...RACE_STATES].map(f => (
               <button className="filter-chip" key={f} onClick={() => setFilter(f)} style={{
                 padding: "5px 11px", borderRadius: 20, fontSize: 12,
@@ -532,7 +561,7 @@ export default function NeetTracker({ onLogout }) {
                 cursor: "pointer", transition: "all 0.15s ease", fontFamily: "inherit"
               }}>{f}</button>
             ))}
-          </div>
+          </div>}
           <div className="chapter-search" style={{ flex: 1, minWidth: 140, position: "relative", marginLeft: "auto" }}>
             <Search size={13} color="#C07B98" style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search chapter..."

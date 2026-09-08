@@ -1,8 +1,8 @@
 # Bhargavi's NEET Tracker — Setup Guide
 
-A Physics + Chemistry prep tracker for NEET, with per-chapter counters for
+A Physics, Chemistry + Biology prep tracker for NEET. Physics and Chemistry have per-chapter counters for
 modules completed, revision passes ("race"), NEET PYQs solved, and JEE PYQs
-solved. Data lives in Supabase (Postgres), so it survives closing the
+solved; Biology has an NCERT-revision counter. Data lives in Supabase (Postgres), so it survives closing the
 browser, switching devices, or a full new session — as long as it's the
 same Supabase project.
 
@@ -18,6 +18,19 @@ same Supabase project.
 4. Go to **Project Settings -> API**. Copy:
    - **Project URL**
    - **anon public** key
+
+### Existing Supabase project: add the Biology field
+
+If you already ran an older version of this tracker, open **SQL Editor -> New query**
+and run this once before deploying the Biology update:
+
+```sql
+alter table chapters
+  add column if not exists ncert_revised_count int default 0;
+```
+
+New projects do not need this separate step: the latest `supabase/schema.sql`
+already creates the column.
 
 ## 2. Configure the app
 
