@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ChevronDown, Plus, Trash2, RotateCcw, BookOpen, FlaskConical, Search, LogOut, Flower2, Ribbon, Sparkles, Star, Cloud, Target, Dna } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2, RotateCcw, BookOpen, FlaskConical, Search, LogOut, Flower2, Ribbon, Sparkles, Star, Cloud, Target, Dna, CalendarDays, X } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import mascotLogo from "../../study_bloom_bunny_mascot_logo.png";
 import {
@@ -12,6 +12,111 @@ const SUBJECT_META = {
   Chemistry: { accent: "#8D1749", icon: FlaskConical, chapters: CHEMISTRY_CHAPTERS },
   Biology: { accent: "#A84364", icon: Dna, chapters: BIOLOGY_CHAPTERS }
 };
+
+const PERIOD_STORAGE_KEY = "study_bloom_period_cycle_v1";
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function dateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function dateFromKey(key) {
+  return new Date(`${key}T12:00:00`);
+}
+
+function formatPeriodDate(key) {
+  return dateFromKey(key).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function PeriodTracker() {
+  const today = new Date();
+  const [month, setMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
+  const [cycle, setCycle] = useState({ start: null, end: null });
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PERIOD_STORAGE_KEY));
+      if (saved && typeof saved.start === "string") {
+        setCycle({ start: saved.start, end: typeof saved.end === "string" ? saved.end : null });
+        setMonth(new Date(dateFromKey(saved.start).getFullYear(), dateFromKey(saved.start).getMonth(), 1));
+      }
+    } catch {
+      localStorage.removeItem(PERIOD_STORAGE_KEY);
+    }
+  }, []);
+
+  const saveCycle = (nextCycle) => {
+    setCycle(nextCycle);
+    if (nextCycle.start) localStorage.setItem(PERIOD_STORAGE_KEY, JSON.stringify(nextCycle));
+    else localStorage.removeItem(PERIOD_STORAGE_KEY);
+  };
+
+  const selectDay = (key) => {
+    if (!cycle.start || cycle.end || key < cycle.start) {
+      saveCycle({ start: key, end: null });
+      return;
+    }
+    saveCycle({ start: cycle.start, end: key });
+  };
+
+  const year = month.getFullYear();
+  const monthIndex = month.getMonth();
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  const leadingDays = new Date(year, monthIndex, 1).getDay();
+  const todayKey = dateKey(today);
+  const isInRange = (key) => cycle.start && cycle.end && key >= cycle.start && key <= cycle.end;
+  const statusText = cycle.start && cycle.end
+    ? `${formatPeriodDate(cycle.start)} – ${formatPeriodDate(cycle.end)}`
+    : cycle.start ? "Choose the final day" : "Choose the first day";
+
+  return (
+    <section className="period-tracker" aria-label="Period calendar">
+      <div className="period-copy">
+        <div className="period-title"><CalendarDays size={18} /> <span>Period calendar</span></div>
+        <p>Tap your first and final day to mark this month.</p>
+        <div className={`period-status ${cycle.start ? "has-selection" : ""}`}>
+          <span className="period-status-dot" /> {statusText}
+        </div>
+        <small>Saved privately in this browser.</small>
+      </div>
+
+      <div className="period-calendar">
+        <div className="calendar-toolbar">
+          <button type="button" className="month-button" onClick={() => setMonth(new Date(year, monthIndex - 1, 1))} aria-label="Previous month"><ChevronLeft size={18} /></button>
+          <strong>{month.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</strong>
+          <button type="button" className="month-button" onClick={() => setMonth(new Date(year, monthIndex + 1, 1))} aria-label="Next month"><ChevronRight size={18} /></button>
+        </div>
+        <div className="weekday-row">{WEEKDAYS.map(day => <span key={day}>{day}</span>)}</div>
+        <div className="calendar-grid">
+          {Array.from({ length: leadingDays }, (_, index) => <span key={`blank-${index}`} />)}
+          {Array.from({ length: daysInMonth }, (_, index) => {
+            const day = index + 1;
+            const key = dateKey(new Date(year, monthIndex, day));
+            const inRange = isInRange(key);
+            const isStart = key === cycle.start;
+            const isEnd = key === cycle.end;
+            return (
+              <button
+                type="button"
+                key={key}
+                onClick={() => selectDay(key)}
+                className={`period-day ${inRange ? "is-range" : ""} ${isStart ? "is-start" : ""} ${isEnd ? "is-end" : ""} ${key === todayKey ? "is-today" : ""}`}
+                style={inRange ? { animationDelay: `${day * 18}ms` } : undefined}
+                aria-label={`Select ${formatPeriodDate(key)}`}
+              >
+                {day}
+              </button>
+            );
+          })}
+        </div>
+        {cycle.start && <button type="button" className="clear-period" onClick={() => saveCycle({ start: null, end: null })}><X size={14} /> Clear dates</button>}
+      </div>
+    </section>
+  );
+}
 
 function buildSkeleton(subject) {
   const map = {};
@@ -426,6 +531,31 @@ export default function NeetTracker({ onLogout }) {
         .sync-dot { width: 7px; height: 7px; border-radius: 50%; background: #6fcf8d; box-shadow: 0 0 0 0 rgba(111,207,141,.4); animation: sync-pulse 1.8s infinite; }
         .logout-button { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 1px solid #ffe5ec; border-radius: 999px; color: #5a4a52; background: #fff; box-shadow: 0 3px 8px rgba(255,143,171,.08); cursor: pointer; font: 700 11px 'Quicksand', sans-serif; }
         .logout-button:hover { color: #ff4d6d; background: #fff0f3; }
+        .period-tracker { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(340px, 1.2fr); gap: 22px; align-items: center; margin-bottom: 20px; padding: 18px 20px; overflow: hidden; position: relative; border: 2px solid #ffe5ec; border-radius: 24px; background: linear-gradient(112deg, #fff0f5 0%, #fff 52%, #f9efff 100%); box-shadow: 0 7px 18px rgba(255,143,171,.12); }
+        .period-tracker::after { content: ''; width: 170px; height: 170px; position: absolute; right: -76px; bottom: -95px; border-radius: 50%; background: rgba(255,143,171,.11); pointer-events: none; }
+        .period-copy { position: relative; z-index: 1; }
+        .period-title { display: flex; align-items: center; gap: 8px; color: #8d1749; font: 700 18px 'Quicksand', sans-serif; }
+        .period-title svg { color: #e2508a; }
+        .period-copy p { margin: 5px 0 12px; color: #6d5260; font-size: 12px; font-weight: 700; }
+        .period-copy small { display: block; margin-top: 10px; color: #a46c82; font-size: 10px; font-weight: 700; }
+        .period-status { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid #f7cbdc; border-radius: 999px; color: #9b5872; background: rgba(255,255,255,.76); font: 700 11px 'Quicksand', sans-serif; transition: color .2s ease, background .2s ease, box-shadow .2s ease; }
+        .period-status.has-selection { color: #8d1749; background: #fff; box-shadow: 0 4px 10px rgba(217,82,136,.12); }
+        .period-status-dot { width: 7px; height: 7px; border-radius: 50%; background: #e8a4bd; }
+        .period-status.has-selection .period-status-dot { background: #e2508a; animation: period-pulse 1.8s ease-in-out infinite; }
+        .period-calendar { position: relative; z-index: 1; padding: 11px; border: 1px solid rgba(255,255,255,.9); border-radius: 18px; background: rgba(255,255,255,.82); box-shadow: inset 0 1px 0 #fff; }
+        .calendar-toolbar { display: grid; grid-template-columns: 36px 1fr 36px; align-items: center; margin-bottom: 8px; text-align: center; color: #6d2348; font: 700 13px 'Quicksand', sans-serif; }
+        .month-button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid #f6c8d9; border-radius: 11px; color: #b33268; background: #fff8fb; cursor: pointer; }
+        .month-button:hover { color: #fff; background: #e2508a; border-color: #e2508a; }
+        .weekday-row, .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+        .weekday-row { margin-bottom: 4px; color: #b27990; font: 700 9px 'Quicksand', sans-serif; text-align: center; text-transform: uppercase; }
+        .period-day { min-width: 0; min-height: 35px; position: relative; border: 0; border-radius: 10px; color: #6d5260; background: transparent; cursor: pointer; font: 700 12px 'Quicksand', sans-serif; transition: transform .2s cubic-bezier(.34,1.56,.64,1), background .2s ease, color .2s ease, box-shadow .2s ease; }
+        .period-day:hover { background: #fff0f5; color: #b32d65; transform: translateY(-1px); }
+        .period-day.is-today { box-shadow: inset 0 0 0 1px #e8a4bd; }
+        .period-day.is-range { color: #9f2458; background: #ffdce9; animation: range-pop .42s cubic-bezier(.34,1.56,.64,1) both; }
+        .period-day.is-start, .period-day.is-end { z-index: 1; color: #fff; background: linear-gradient(135deg, #ff8fab, #b32d65); box-shadow: 0 5px 10px rgba(198,53,108,.27); }
+        .period-day.is-start::after, .period-day.is-end::after { content: ''; position: absolute; width: 7px; height: 7px; top: 4px; right: 4px; border-radius: 50%; background: rgba(255,255,255,.8); }
+        .clear-period { display: inline-flex; align-items: center; gap: 5px; margin: 8px 0 0 auto; padding: 4px 7px; border: 0; color: #a2657d; background: transparent; cursor: pointer; font: 700 10px 'Quicksand', sans-serif; }
+        .clear-period:hover { color: #b32d65; }
         .cheer-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; padding: 15px 18px; border: 2px solid #ffe5ec; border-radius: 24px; background: linear-gradient(90deg, #fff0f3, #fff, #f4efff); box-shadow: 0 5px 14px rgba(255,143,171,.11); }
         .cheer-copy { display: flex; align-items: center; gap: 12px; }
         .cheer-mascot { width: 46px; height: 46px; flex: 0 0 auto; padding: 2px; overflow: hidden; border: 1px solid #ffe5ec; border-radius: 50%; background: #fff; box-shadow: inset 0 2px 4px rgba(255,182,201,.2); animation: gentle-float 4s ease-in-out infinite; }
@@ -450,6 +580,8 @@ export default function NeetTracker({ onLogout }) {
         @keyframes page-in { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes gentle-float { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-10px) rotate(9deg); } }
         @keyframes sync-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(111,207,141,.35); } 50% { box-shadow: 0 0 0 5px rgba(111,207,141,0); } }
+        @keyframes period-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(226,80,138,.32); } 50% { box-shadow: 0 0 0 5px rgba(226,80,138,0); } }
+        @keyframes range-pop { from { opacity: 0; transform: scale(.65); } to { opacity: 1; transform: scale(1); } }
         @media (max-width: 660px) {
           .tracker-shell { min-height: 100dvh !important; padding: max(14px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(28px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)) !important; }
           .main-header { position: sticky; top: 0; z-index: 10; align-items: flex-start; flex-direction: column; margin: -4px -4px 16px; padding: 10px 4px 12px; background: linear-gradient(180deg, rgba(255,247,249,.97) 75%, rgba(255,247,249,0)); backdrop-filter: blur(10px); }
@@ -465,6 +597,12 @@ export default function NeetTracker({ onLogout }) {
           .cheer-mascot { width: 42px; height: 42px; }
           .cheer-text { font-size: 13px; }
           .target-callout { align-self: stretch; min-height: 42px; justify-content: center; white-space: normal; text-align: center; }
+          .period-tracker { grid-template-columns: 1fr; gap: 14px; padding: 15px; border-radius: 20px; }
+          .period-copy p { margin-bottom: 9px; }
+          .period-copy small { display: none; }
+          .period-calendar { padding: 10px; }
+          .period-day { min-height: 40px; font-size: 13px; }
+          .month-button { width: 38px; height: 38px; }
           .dashboard-card { min-width: 100% !important; padding: 15px !important; border-radius: 20px !important; }
           .stats-row { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px !important; }
           .biology-dashboard .stats-row { grid-template-columns: minmax(0, 1fr); }
@@ -501,7 +639,7 @@ export default function NeetTracker({ onLogout }) {
           .page-star { top: 90px !important; right: 4px !important; opacity: .35; }
           .page-sparkle { bottom: 35px !important; right: 8px !important; opacity: .3; }
         }
-        @media (prefers-reduced-motion: reduce) { .tracker-content, .page-flower, .page-star, .page-sparkle, .cheer-mascot, .sync-dot { animation: none; } .dashboard-card:hover, .chapter-card:hover { transform: none; } }
+        @media (prefers-reduced-motion: reduce) { .tracker-content, .page-flower, .page-star, .page-sparkle, .cheer-mascot, .sync-dot, .period-status.has-selection .period-status-dot, .period-day.is-range { animation: none; } .dashboard-card:hover, .chapter-card:hover { transform: none; } }
       `}</style>
 
       <Flower2 className="page-flower" size={64} strokeWidth={1} style={{ top: 102, left: "4%" }} />
@@ -522,6 +660,8 @@ export default function NeetTracker({ onLogout }) {
             <button className="logout-button" onClick={handleLogout}><LogOut size={14} /> Log out</button>
           </div>
         </header>
+
+        <PeriodTracker />
 
         <section className="cheer-banner">
           <div className="cheer-copy">
