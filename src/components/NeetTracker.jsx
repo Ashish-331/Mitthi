@@ -13,7 +13,6 @@ const SUBJECT_META = {
   Biology: { accent: "#A84364", icon: Dna, chapters: BIOLOGY_CHAPTERS }
 };
 
-const PERIOD_STORAGE_KEY = "study_bloom_period_cycle_v1";
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function dateKey(date) {
@@ -34,32 +33,68 @@ function formatPeriodDate(key) {
 function PeriodTracker() {
   const today = new Date();
   const [month, setMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
-  const [cycle, setCycle] = useState({ start: null, end: null });
+  const [cycles, setCycles] = useState([]);
+  const [draftStart, setDraftStart] = useState(null);
+  const [periodError, setPeriodError] = useState("");
 
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(PERIOD_STORAGE_KEY));
-      if (saved && typeof saved.start === "string") {
-        setCycle({ start: saved.start, end: typeof saved.end === "string" ? saved.end : null });
-        setMonth(new Date(dateFromKey(saved.start).getFullYear(), dateFromKey(saved.start).getMonth(), 1));
+    let cancelled = false;
+    async function loadCycles() {
+      const { data, error } = await supabase
+        .from("period_cycles")
+        .select("id, start_date, end_date")
+        .order("start_date", { ascending: false });
+      if (cancelled) return;
+      if (error) {
+        console.error("Period calendar load failed", error);
+        setPeriodError("Set up the period calendar in Supabase to save dates.");
+      } else {
+        setCycles(data || []);
       }
-    } catch {
-      localStorage.removeItem(PERIOD_STORAGE_KEY);
     }
+    loadCycles();
+    return () => { cancelled = true; };
   }, []);
 
-  const saveCycle = (nextCycle) => {
-    setCycle(nextCycle);
-    if (nextCycle.start) localStorage.setItem(PERIOD_STORAGE_KEY, JSON.stringify(nextCycle));
-    else localStorage.removeItem(PERIOD_STORAGE_KEY);
+  const saveCycle = async (startDate, endDate) => {
+    const pendingId = `pending-${Date.now()}`;
+    const pendingCycle = { id: pendingId, start_date: startDate, end_date: endDate };
+    setCycles(previous => [pendingCycle, ...previous]);
+    setDraftStart(null);
+    setPeriodError("");
+
+    const { data, error } = await supabase
+      .from("period_cycles")
+      .insert({ start_date: startDate, end_date: endDate })
+      .select("id, start_date, end_date")
+      .single();
+
+    if (error) {
+      console.error("Period calendar save failed", error);
+      setCycles(previous => previous.filter(cycle => cycle.id !== pendingId));
+      setPeriodError("Could not save this range. Check the Supabase setup.");
+    } else {
+      setCycles(previous => previous.map(cycle => cycle.id === pendingId ? data : cycle));
+    }
   };
 
   const selectDay = (key) => {
-    if (!cycle.start || cycle.end || key < cycle.start) {
-      saveCycle({ start: key, end: null });
+    if (!draftStart || key < draftStart) {
+      setDraftStart(key);
       return;
     }
-    saveCycle({ start: cycle.start, end: key });
+    saveCycle(draftStart, key);
+  };
+
+  const deleteCycle = async (cycle) => {
+    const previous = cycles;
+    setCycles(current => current.filter(item => item.id !== cycle.id));
+    const { error } = await supabase.from("period_cycles").delete().eq("id", cycle.id);
+    if (error) {
+      console.error("Period calendar delete failed", error);
+      setCycles(previous);
+      setPeriodError("Could not remove this range. Please try again.");
+    }
   };
 
   const year = month.getFullYear();
@@ -67,20 +102,18 @@ function PeriodTracker() {
   const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
   const leadingDays = new Date(year, monthIndex, 1).getDay();
   const todayKey = dateKey(today);
-  const isInRange = (key) => cycle.start && cycle.end && key >= cycle.start && key <= cycle.end;
-  const statusText = cycle.start && cycle.end
-    ? `${formatPeriodDate(cycle.start)} – ${formatPeriodDate(cycle.end)}`
-    : cycle.start ? "Choose the final day" : "Choose the first day";
+  const cycleForDate = (key) => cycles.find(cycle => key >= cycle.start_date && key <= cycle.end_date);
+  const statusText = periodError || (draftStart ? "Choose the final day" : cycles.length ? `${cycles.length} saved cycle${cycles.length === 1 ? "" : "s"}` : "Choose the first day");
 
   return (
     <section className="period-tracker" aria-label="Period calendar">
       <div className="period-copy">
         <div className="period-title"><CalendarDays size={18} /> <span>Period calendar</span></div>
-        <p>Tap your first and final day to mark this month.</p>
-        <div className={`period-status ${cycle.start ? "has-selection" : ""}`}>
+        <p>Tap your first and final day to save a cycle.</p>
+        <div className={`period-status ${draftStart || cycles.length ? "has-selection" : ""} ${periodError ? "has-error" : ""}`}>
           <span className="period-status-dot" /> {statusText}
         </div>
-        <small>Saved privately in this browser.</small>
+        <small>Saved in your tracker database.</small>
       </div>
 
       <div className="period-calendar">
@@ -95,15 +128,17 @@ function PeriodTracker() {
           {Array.from({ length: daysInMonth }, (_, index) => {
             const day = index + 1;
             const key = dateKey(new Date(year, monthIndex, day));
-            const inRange = isInRange(key);
-            const isStart = key === cycle.start;
-            const isEnd = key === cycle.end;
+            const savedCycle = cycleForDate(key);
+            const inRange = Boolean(savedCycle);
+            const isStart = savedCycle && key === savedCycle.start_date;
+            const isEnd = savedCycle && key === savedCycle.end_date;
+            const isDraft = key === draftStart;
             return (
               <button
                 type="button"
                 key={key}
                 onClick={() => selectDay(key)}
-                className={`period-day ${inRange ? "is-range" : ""} ${isStart ? "is-start" : ""} ${isEnd ? "is-end" : ""} ${key === todayKey ? "is-today" : ""}`}
+                className={`period-day ${inRange ? "is-range" : ""} ${isStart ? "is-start" : ""} ${isEnd ? "is-end" : ""} ${isDraft ? "is-draft" : ""} ${key === todayKey ? "is-today" : ""}`}
                 style={inRange ? { animationDelay: `${day * 18}ms` } : undefined}
                 aria-label={`Select ${formatPeriodDate(key)}`}
               >
@@ -112,7 +147,13 @@ function PeriodTracker() {
             );
           })}
         </div>
-        {cycle.start && <button type="button" className="clear-period" onClick={() => saveCycle({ start: null, end: null })}><X size={14} /> Clear dates</button>}
+        {draftStart && <button type="button" className="clear-period" onClick={() => setDraftStart(null)}><X size={14} /> Cancel selection</button>}
+        {cycles.length > 0 && <div className="cycle-history">
+          {cycles.slice(0, 3).map(cycle => <div className="cycle-chip" key={cycle.id}>
+            <span>{formatPeriodDate(cycle.start_date)} – {formatPeriodDate(cycle.end_date)}</span>
+            {!String(cycle.id).startsWith("pending-") && <button type="button" onClick={() => deleteCycle(cycle)} aria-label={`Delete period cycle ${formatPeriodDate(cycle.start_date)} to ${formatPeriodDate(cycle.end_date)}`}><X size={12} /></button>}
+          </div>)}
+        </div>}
       </div>
     </section>
   );
@@ -540,6 +581,7 @@ export default function NeetTracker({ onLogout }) {
         .period-copy small { display: block; margin-top: 10px; color: #a46c82; font-size: 10px; font-weight: 700; }
         .period-status { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid #f7cbdc; border-radius: 999px; color: #9b5872; background: rgba(255,255,255,.76); font: 700 11px 'Quicksand', sans-serif; transition: color .2s ease, background .2s ease, box-shadow .2s ease; }
         .period-status.has-selection { color: #8d1749; background: #fff; box-shadow: 0 4px 10px rgba(217,82,136,.12); }
+        .period-status.has-error { color: #a32d2d; border-color: #f2b6b6; background: #fff7f7; }
         .period-status-dot { width: 7px; height: 7px; border-radius: 50%; background: #e8a4bd; }
         .period-status.has-selection .period-status-dot { background: #e2508a; animation: period-pulse 1.8s ease-in-out infinite; }
         .period-calendar { position: relative; z-index: 1; padding: 11px; border: 1px solid rgba(255,255,255,.9); border-radius: 18px; background: rgba(255,255,255,.82); box-shadow: inset 0 1px 0 #fff; }
@@ -553,9 +595,14 @@ export default function NeetTracker({ onLogout }) {
         .period-day.is-today { box-shadow: inset 0 0 0 1px #e8a4bd; }
         .period-day.is-range { color: #9f2458; background: #ffdce9; animation: range-pop .42s cubic-bezier(.34,1.56,.64,1) both; }
         .period-day.is-start, .period-day.is-end { z-index: 1; color: #fff; background: linear-gradient(135deg, #ff8fab, #b32d65); box-shadow: 0 5px 10px rgba(198,53,108,.27); }
+        .period-day.is-draft { z-index: 1; color: #8d1749; background: #fff; box-shadow: inset 0 0 0 2px #e2508a, 0 4px 9px rgba(198,53,108,.14); animation: draft-pulse 1.2s ease-in-out infinite; }
         .period-day.is-start::after, .period-day.is-end::after { content: ''; position: absolute; width: 7px; height: 7px; top: 4px; right: 4px; border-radius: 50%; background: rgba(255,255,255,.8); }
         .clear-period { display: inline-flex; align-items: center; gap: 5px; margin: 8px 0 0 auto; padding: 4px 7px; border: 0; color: #a2657d; background: transparent; cursor: pointer; font: 700 10px 'Quicksand', sans-serif; }
         .clear-period:hover { color: #b32d65; }
+        .cycle-history { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+        .cycle-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 5px 4px 8px; border: 1px solid #f4c8d9; border-radius: 999px; color: #9b5872; background: #fff9fc; font: 700 9px 'Quicksand', sans-serif; }
+        .cycle-chip button { display: grid; width: 18px; height: 18px; place-items: center; border: 0; border-radius: 50%; color: #b36682; background: transparent; cursor: pointer; }
+        .cycle-chip button:hover { color: #fff; background: #d84f86; }
         .cheer-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; padding: 15px 18px; border: 2px solid #ffe5ec; border-radius: 24px; background: linear-gradient(90deg, #fff0f3, #fff, #f4efff); box-shadow: 0 5px 14px rgba(255,143,171,.11); }
         .cheer-copy { display: flex; align-items: center; gap: 12px; }
         .cheer-mascot { width: 46px; height: 46px; flex: 0 0 auto; padding: 2px; overflow: hidden; border: 1px solid #ffe5ec; border-radius: 50%; background: #fff; box-shadow: inset 0 2px 4px rgba(255,182,201,.2); animation: gentle-float 4s ease-in-out infinite; }
@@ -582,6 +629,7 @@ export default function NeetTracker({ onLogout }) {
         @keyframes sync-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(111,207,141,.35); } 50% { box-shadow: 0 0 0 5px rgba(111,207,141,0); } }
         @keyframes period-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(226,80,138,.32); } 50% { box-shadow: 0 0 0 5px rgba(226,80,138,0); } }
         @keyframes range-pop { from { opacity: 0; transform: scale(.65); } to { opacity: 1; transform: scale(1); } }
+        @keyframes draft-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
         @media (max-width: 660px) {
           .tracker-shell { min-height: 100dvh !important; padding: max(14px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(28px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)) !important; }
           .main-header { position: sticky; top: 0; z-index: 10; align-items: flex-start; flex-direction: column; margin: -4px -4px 16px; padding: 10px 4px 12px; background: linear-gradient(180deg, rgba(255,247,249,.97) 75%, rgba(255,247,249,0)); backdrop-filter: blur(10px); }
@@ -639,7 +687,7 @@ export default function NeetTracker({ onLogout }) {
           .page-star { top: 90px !important; right: 4px !important; opacity: .35; }
           .page-sparkle { bottom: 35px !important; right: 8px !important; opacity: .3; }
         }
-        @media (prefers-reduced-motion: reduce) { .tracker-content, .page-flower, .page-star, .page-sparkle, .cheer-mascot, .sync-dot, .period-status.has-selection .period-status-dot, .period-day.is-range { animation: none; } .dashboard-card:hover, .chapter-card:hover { transform: none; } }
+        @media (prefers-reduced-motion: reduce) { .tracker-content, .page-flower, .page-star, .page-sparkle, .cheer-mascot, .sync-dot, .period-status.has-selection .period-status-dot, .period-day.is-range, .period-day.is-draft { animation: none; } .dashboard-card:hover, .chapter-card:hover { transform: none; } }
       `}</style>
 
       <Flower2 className="page-flower" size={64} strokeWidth={1} style={{ top: 102, left: "4%" }} />
