@@ -158,6 +158,7 @@ function ChapterRow({ data, onUpdate, onDelete, accent }) {
   const [localModules, setLocalModules] = useState(data.modules_text || "");
   const debounceTimer = useRef(null);
   const isBiology = data.subject === "Biology";
+  const isChemistry = data.subject === "Chemistry";
 
   useEffect(() => { setLocalNotes(data.notes || ""); setLocalModules(data.modules_text || ""); }, [data.name]);
 
@@ -226,6 +227,12 @@ function ChapterRow({ data, onUpdate, onDelete, accent }) {
               <Counter label="JEE PYQ" value={data.jee_pyq_count || 0} accent={accent}
                 onIncrement={() => onUpdate({ jee_pyq_count: (data.jee_pyq_count || 0) + 1 })}
                 onDecrement={() => onUpdate({ jee_pyq_count: Math.max(0, (data.jee_pyq_count || 0) - 1) })} />
+              {isChemistry && <Counter label="NCERT" value={data.ncert_count || 0} accent={accent}
+                onIncrement={() => onUpdate({ ncert_count: (data.ncert_count || 0) + 1 })}
+                onDecrement={() => onUpdate({ ncert_count: Math.max(0, (data.ncert_count || 0) - 1) })} />}
+              {isChemistry && <Counter label="EXEMPLAR" value={data.exemplar_count || 0} accent={accent}
+                onIncrement={() => onUpdate({ exemplar_count: (data.exemplar_count || 0) + 1 })}
+                onDecrement={() => onUpdate({ exemplar_count: Math.max(0, (data.exemplar_count || 0) - 1) })} />}
             </>
           )}
         </div>

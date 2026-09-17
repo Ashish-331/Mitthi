@@ -59,6 +59,8 @@ export function defaultChapterRow(subject, name) {
     neet_pyq_count: 0,
     jee_pyq_count: 0,
     ncert_revised_count: 0,
+    ncert_count: 0,
+    exemplar_count: 0,
     confidence: 3,
     last_revised: null,
     notes: ""

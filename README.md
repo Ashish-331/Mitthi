@@ -19,18 +19,24 @@ same Supabase project.
    - **Project URL**
    - **anon public** key
 
-### Existing Supabase project: add the Biology field
+### Existing Supabase project: add Biology and Chemistry fields
 
 If you already ran an older version of this tracker, open **SQL Editor -> New query**
-and run this once before deploying the Biology update:
+and run this once before deploying the Biology and Chemistry updates:
 
 ```sql
 alter table chapters
   add column if not exists ncert_revised_count int default 0;
+
+alter table chapters
+  add column if not exists ncert_count int default 0;
+
+alter table chapters
+  add column if not exists exemplar_count int default 0;
 ```
 
 New projects do not need this separate step: the latest `supabase/schema.sql`
-already creates the column.
+already creates these columns.
 
 ## 2. Configure the app
 
