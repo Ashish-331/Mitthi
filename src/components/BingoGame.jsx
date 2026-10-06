@@ -1,23 +1,93 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, Component } from "react";
 import {
   Trophy, Sparkles, RotateCcw, Shuffle, Eye, EyeOff,
   Volume2, VolumeX, Gamepad2, Flame, Crown, Swords,
   BookOpen, LogOut, Cloud, Flower2, Ribbon, Star,
-  X, Info, Check, UserCheck, ShieldCheck
+  X, Info, Check, AlertCircle
 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import mascotLogo from "../../study_bloom_bunny_mascot_logo.png";
 import { BINGO_LETTERS, generateBoard, evaluateBoard, playSound } from "../lib/bingoUtils";
 
-function useCountUp(target, duration = 450) {
-  const [display, setDisplay] = useState(target);
-  const prevRef = useRef(target);
+// Error Boundary to prevent any blank screen crash
+class BingoErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("Bingo arena caught error:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          minHeight: "80vh",
+          display: "grid",
+          placeItems: "center",
+          padding: 24,
+          fontFamily: "'Quicksand', sans-serif",
+          color: "#55102e",
+          textAlign: "center"
+        }}>
+          <div style={{
+            maxWidth: 420,
+            padding: 32,
+            background: "#fff",
+            borderRadius: 24,
+            boxShadow: "0 12px 32px rgba(255, 143, 171, 0.25)",
+            border: "2px solid #ffe5ec"
+          }}>
+            <div style={{
+              width: 70, height: 70, margin: "0 auto 16px", borderRadius: "50%",
+              overflow: "hidden", border: "2px solid #ff8fab"
+            }}>
+              <img src={mascotLogo} alt="Mascot" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            </div>
+            <h2 style={{ margin: "0 0 8px", color: "#C92F6D", fontSize: 22 }}>A small hiccup occurred</h2>
+            <p style={{ fontSize: 13, color: "#6d5260", marginBottom: 20 }}>
+              The game state encountered a minor refresh issue. Tap below to continue playing seamlessly.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                this.setState({ hasError: false });
+                window.location.reload();
+              }}
+              style={{
+                padding: "10px 22px",
+                borderRadius: 999,
+                border: "none",
+                background: "linear-gradient(135deg, #ff8fab, #ff4d6d)",
+                color: "#fff",
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: "0 4px 12px rgba(255, 77, 109, 0.3)"
+              }}
+            >
+              <RotateCcw size={14} style={{ verticalAlign: -2, marginRight: 6 }} /> Refresh Bingo Arena
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function useCountUp(target = 0, duration = 450) {
+  const safeTarget = typeof target === "number" && !isNaN(target) ? target : 0;
+  const [display, setDisplay] = useState(safeTarget);
+  const prevRef = useRef(safeTarget);
   const frameRef = useRef(null);
 
   useEffect(() => {
-    const start = prevRef.current;
-    const diff = target - start;
-    if (diff === 0) { setDisplay(target); return; }
+    const start = typeof prevRef.current === "number" ? prevRef.current : 0;
+    const diff = safeTarget - start;
+    if (diff === 0) { setDisplay(safeTarget); return; }
     const startTime = performance.now();
     cancelAnimationFrame(frameRef.current);
 
@@ -27,56 +97,69 @@ function useCountUp(target, duration = 450) {
       const eased = 1 - Math.pow(1 - t, 3);
       setDisplay(Math.round(start + diff * eased));
       if (t < 1) frameRef.current = requestAnimationFrame(tick);
-      else prevRef.current = target;
+      else prevRef.current = safeTarget;
     }
 
     frameRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frameRef.current);
-  }, [target, duration]);
+  }, [safeTarget, duration]);
 
   return display;
 }
 
-export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, onLogout }) {
+function BingoGameContent({ currentUser = "mithi", onNavigateToTracker, onLogout }) {
   // Scoreboard stats (persisted to Supabase and localStorage)
   const [stats, setStats] = useState(() => {
     try {
       const saved = localStorage.getItem("study_bloom_bingo_stats");
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === "object") {
+          return {
+            total_games: parsed.total_games || 0,
+            mithi_wins: parsed.mithi_wins || 0,
+            ashish_wins: parsed.ashish_wins || 0,
+            draws: parsed.draws || 0
+          };
+        }
+      }
     } catch {}
     return { total_games: 0, mithi_wins: 0, ashish_wins: 0, draws: 0 };
   });
 
-  const [syncStatus, setSyncStatus] = useState("syncing"); // "synced", "local", "syncing"
+  const [syncStatus, setSyncStatus] = useState("syncing");
 
   // Match Boards & State
   const [mithiBoard, setMithiBoard] = useState(() => generateBoard());
   const [ashishBoard, setAshishBoard] = useState(() => generateBoard());
   const [calledNumbers, setCalledNumbers] = useState([]);
-  const [currentTurn, setCurrentTurn] = useState("mithi"); // "mithi" or "ashish"
+  const [currentTurn, setCurrentTurn] = useState("mithi");
   const [starter, setStarter] = useState("mithi");
-  const [gameStatus, setGameStatus] = useState("playing"); // "playing", "gameover"
+  const [gameStatus, setGameStatus] = useState("playing");
   const [winner, setWinner] = useState(null);
   const [winningNumber, setWinningNumber] = useState(null);
 
+  // Modal display control and dismiss tracking to prevent nagging re-open loop
+  const [showVictoryModal, setShowVictoryModal] = useState(false);
+  const dismissedMatchRef = useRef(null);
+
   // Active viewer (Mithi only sees Mithi's board; Ashish only sees Ashish's board)
-  const loggedPlayer = currentUser === "ashish" ? "ashish" : "mithi";
+  const loggedPlayer = (currentUser || "").toLowerCase() === "ashish" ? "ashish" : "mithi";
   const [activeViewer, setActiveViewer] = useState(loggedPlayer);
 
-  // Sync viewer when logged-in user changes
   useEffect(() => {
-    setActiveViewer(currentUser === "ashish" ? "ashish" : "mithi");
+    setActiveViewer((currentUser || "").toLowerCase() === "ashish" ? "ashish" : "mithi");
   }, [currentUser]);
 
   // UI Settings & Toggles
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showRules, setShowRules] = useState(false);
-  const [showVictoryModal, setShowVictoryModal] = useState(false);
   const [lastMoveMessage, setLastMoveMessage] = useState("Game ready! Mithi calls first.");
 
-  const calledSet = new Set(calledNumbers);
-  const mithiEval = evaluateBoard(mithiBoard, calledSet);
-  const ashishEval = evaluateBoard(ashishBoard, calledSet);
+  const safeCalledNumbers = Array.isArray(calledNumbers) ? calledNumbers : [];
+  const calledSet = new Set(safeCalledNumbers);
+  const mithiEval = evaluateBoard(mithiBoard, calledSet) || { lineCount: 0, winningIndices: new Set(), hasBingo: false };
+  const ashishEval = evaluateBoard(ashishBoard, calledSet) || { lineCount: 0, winningIndices: new Set(), hasBingo: false };
 
   // 1. Synchronize lifetime stats with Supabase on mount
   useEffect(() => {
@@ -95,8 +178,16 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
           console.warn("Supabase bingo_stats load note:", error.message);
           setSyncStatus("local");
         } else if (data) {
-          setStats(data);
-          localStorage.setItem("study_bloom_bingo_stats", JSON.stringify(data));
+          const loaded = {
+            total_games: data.total_games || 0,
+            mithi_wins: data.mithi_wins || 0,
+            ashish_wins: data.ashish_wins || 0,
+            draws: data.draws || 0
+          };
+          setStats(loaded);
+          try {
+            localStorage.setItem("study_bloom_bingo_stats", JSON.stringify(loaded));
+          } catch {}
           setSyncStatus("synced");
         } else {
           const initial = { id: "main", total_games: 0, mithi_wins: 0, ashish_wins: 0, draws: 0 };
@@ -148,12 +239,17 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
         if (data.starter) setStarter(data.starter);
         if (data.status) setGameStatus(data.status);
         if (data.winner) setWinner(data.winner);
-        if (data.winning_number) setWinningNumber(data.winning_number);
+        if (data.winning_number !== undefined) setWinningNumber(data.winning_number);
+
+        // Check victory modal trigger — only open if this match has not been dismissed yet
         if (data.status === "gameover" && data.winner) {
-          setShowVictoryModal(true);
+          const matchKey = `gameover-${data.winner}-${data.winning_number || ""}-${(data.called_numbers || []).length}`;
+          if (dismissedMatchRef.current !== matchKey) {
+            setShowVictoryModal(true);
+          }
         }
       } catch {
-        // Table may not exist yet, fallback to local state
+        // Safe fallback
       }
     }
 
@@ -176,9 +272,14 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
               if (Array.isArray(d.called_numbers)) setCalledNumbers(d.called_numbers);
               if (d.current_turn) setCurrentTurn(d.current_turn);
               if (d.status) setGameStatus(d.status);
-              if (d.winner) {
-                setWinner(d.winner);
-                setShowVictoryModal(true);
+              if (d.winner) setWinner(d.winner);
+              if (d.winning_number !== undefined) setWinningNumber(d.winning_number);
+
+              if (d.status === "gameover" && d.winner) {
+                const matchKey = `gameover-${d.winner}-${d.winning_number || ""}-${(d.called_numbers || []).length}`;
+                if (dismissedMatchRef.current !== matchKey) {
+                  setShowVictoryModal(true);
+                }
               }
             }
           }
@@ -193,141 +294,178 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
     };
   }, [soundEnabled]);
 
-  // Save game record to Supabase + localStorage
+  // Safe result recorder (never executes side-effects inside state setter)
   const saveGameResult = useCallback(async (gameWinner, winningNum, mLines, aLines, turnsCount) => {
-    setStats(prev => {
+    try {
+      const prevStats = stats || { total_games: 0, mithi_wins: 0, ashish_wins: 0, draws: 0 };
+      const normWinner = (gameWinner || "").toLowerCase();
       const next = {
-        total_games: prev.total_games + 1,
-        mithi_wins: gameWinner === "mithi" ? prev.mithi_wins + 1 : prev.mithi_wins,
-        ashish_wins: gameWinner === "ashish" ? prev.ashish_wins + 1 : prev.ashish_wins,
-        draws: gameWinner === "draw" ? prev.draws + 1 : prev.draws
+        total_games: (prevStats.total_games || 0) + 1,
+        mithi_wins: normWinner === "mithi" ? (prevStats.mithi_wins || 0) + 1 : (prevStats.mithi_wins || 0),
+        ashish_wins: normWinner === "ashish" ? (prevStats.ashish_wins || 0) + 1 : (prevStats.ashish_wins || 0),
+        draws: normWinner === "draw" ? (prevStats.draws || 0) + 1 : (prevStats.draws || 0)
       };
-      localStorage.setItem("study_bloom_bingo_stats", JSON.stringify(next));
 
-      supabase.from("bingo_stats").upsert({
-        id: "main",
-        ...next,
-        updated_at: new Date().toISOString()
-      }).then(({ error }) => {
+      setStats(next);
+
+      try {
+        localStorage.setItem("study_bloom_bingo_stats", JSON.stringify(next));
+      } catch (err) {
+        console.warn("localStorage stats write skipped:", err);
+      }
+
+      try {
+        const { error } = await supabase.from("bingo_stats").upsert({
+          id: "main",
+          ...next,
+          updated_at: new Date().toISOString()
+        });
         if (!error) setSyncStatus("synced");
-      });
+      } catch (err) {
+        console.warn("Supabase stats upsert note:", err);
+      }
 
-      const winnerLabel = gameWinner === "mithi" ? "Mithi" : gameWinner === "ashish" ? "Ashish" : "Draw";
-      supabase.from("bingo_games").insert({
-        winner: winnerLabel,
-        mithi_lines: mLines,
-        ashish_lines: aLines,
-        total_turns: turnsCount,
-        winning_number: winningNum
-      }).catch(() => {});
-
-      return next;
-    });
-  }, []);
+      try {
+        const winnerLabel = normWinner === "mithi" ? "Mithi" : normWinner === "ashish" ? "Ashish" : "Draw";
+        await supabase.from("bingo_games").insert({
+          winner: winnerLabel,
+          mithi_lines: mLines || 0,
+          ashish_lines: aLines || 0,
+          total_turns: turnsCount || 0,
+          winning_number: winningNum || null
+        });
+      } catch (err) {
+        console.warn("Supabase games log note:", err);
+      }
+    } catch (err) {
+      console.error("saveGameResult caught error:", err);
+    }
+  }, [stats]);
 
   // Calling a number
   const handleCallNumber = async (num, callingPlayer) => {
-    if (gameStatus !== "playing") return;
-    if (currentTurn !== callingPlayer) return;
-    if (calledSet.has(num)) return;
-
-    const nextCalled = [...calledNumbers, num];
-    const nextSet = new Set(nextCalled);
-
-    const prevMithiLines = mithiEval.lineCount;
-    const prevAshishLines = ashishEval.lineCount;
-
-    const newMithiEval = evaluateBoard(mithiBoard, nextSet);
-    const newAshishEval = evaluateBoard(ashishBoard, nextSet);
-
-    setCalledNumbers(nextCalled);
-    const callerName = callingPlayer === "mithi" ? "Mithi" : "Ashish";
-    setLastMoveMessage(`${callerName} called number #${num}!`);
-
-    // Check for win
-    const mithiWon = newMithiEval.hasBingo;
-    const ashishWon = newAshishEval.hasBingo;
-
-    let nextStatus = "playing";
-    let finalWinner = null;
-    let nextTurn = currentTurn === "mithi" ? "ashish" : "mithi";
-
-    if (mithiWon || ashishWon) {
-      nextStatus = "gameover";
-      if (soundEnabled) playSound("bingo");
-      setGameStatus("gameover");
-      setWinningNumber(num);
-
-      if (mithiWon && !ashishWon) finalWinner = "mithi";
-      else if (ashishWon && !mithiWon) finalWinner = "ashish";
-      else finalWinner = callingPlayer; // Caller advantage
-
-      setWinner(finalWinner);
-      setShowVictoryModal(true);
-      saveGameResult(finalWinner, num, newMithiEval.lineCount, newAshishEval.lineCount, nextCalled.length);
-    } else {
-      const linesAdded = (newMithiEval.lineCount > prevMithiLines) || (newAshishEval.lineCount > prevAshishLines);
-      if (soundEnabled) {
-        if (linesAdded) playSound("line");
-        else playSound("pop");
-      }
-      setCurrentTurn(nextTurn);
-    }
-
-    // Push live match update to Supabase
     try {
-      await supabase.from("bingo_active_match").upsert({
-        id: "current",
-        mithi_board: mithiBoard,
-        ashish_board: ashishBoard,
-        called_numbers: nextCalled,
-        current_turn: nextTurn,
-        starter: starter,
-        status: nextStatus,
-        winner: finalWinner,
-        winning_number: num,
-        updated_at: new Date().toISOString()
-      });
-    } catch {}
+      if (gameStatus !== "playing") return;
+      if (currentTurn !== callingPlayer) return;
+      if (calledSet.has(num)) return;
+
+      const nextCalled = [...safeCalledNumbers, num];
+      const nextSet = new Set(nextCalled);
+
+      const prevMithiLines = mithiEval?.lineCount || 0;
+      const prevAshishLines = ashishEval?.lineCount || 0;
+
+      const newMithiEval = evaluateBoard(mithiBoard, nextSet);
+      const newAshishEval = evaluateBoard(ashishBoard, nextSet);
+
+      setCalledNumbers(nextCalled);
+      const callerName = callingPlayer === "mithi" ? "Mithi" : "Ashish";
+      setLastMoveMessage(`${callerName} called number #${num}!`);
+
+      // Check for win
+      const mithiWon = Boolean(newMithiEval?.hasBingo);
+      const ashishWon = Boolean(newAshishEval?.hasBingo);
+
+      let nextStatus = "playing";
+      let finalWinner = null;
+      let nextTurn = currentTurn === "mithi" ? "ashish" : "mithi";
+
+      if (mithiWon || ashishWon) {
+        nextStatus = "gameover";
+        if (soundEnabled) playSound("bingo");
+        setGameStatus("gameover");
+        setWinningNumber(num);
+
+        if (mithiWon && !ashishWon) finalWinner = "mithi";
+        else if (ashishWon && !mithiWon) finalWinner = "ashish";
+        else finalWinner = callingPlayer; // Caller advantage
+
+        setWinner(finalWinner);
+        setShowVictoryModal(true);
+        saveGameResult(finalWinner, num, newMithiEval?.lineCount || 0, newAshishEval?.lineCount || 0, nextCalled.length);
+      } else {
+        const linesAdded = ((newMithiEval?.lineCount || 0) > prevMithiLines) || ((newAshishEval?.lineCount || 0) > prevAshishLines);
+        if (soundEnabled) {
+          if (linesAdded) playSound("line");
+          else playSound("pop");
+        }
+        setCurrentTurn(nextTurn);
+      }
+
+      // Live match update to Supabase
+      try {
+        await supabase.from("bingo_active_match").upsert({
+          id: "current",
+          mithi_board: mithiBoard,
+          ashish_board: ashishBoard,
+          called_numbers: nextCalled,
+          current_turn: nextTurn,
+          starter: starter,
+          status: nextStatus,
+          winner: finalWinner,
+          winning_number: num,
+          updated_at: new Date().toISOString()
+        });
+      } catch (err) {
+        console.warn("Active match upsert note:", err);
+      }
+    } catch (err) {
+      console.error("handleCallNumber error caught:", err);
+    }
+  };
+
+  // Close victory modal and remember it was dismissed for this match
+  const handleCloseVictoryModal = () => {
+    const currentKey = `gameover-${winner}-${winningNumber || ""}-${safeCalledNumbers.length}`;
+    dismissedMatchRef.current = currentKey;
+    setShowVictoryModal(false);
   };
 
   // Start new match
   const handleNewMatch = async (forceStarter = null) => {
-    const nextStarter = forceStarter || (starter === "mithi" ? "ashish" : "mithi");
-    const newM = generateBoard();
-    const newA = generateBoard();
-
-    setStarter(nextStarter);
-    setCurrentTurn(nextStarter);
-    setMithiBoard(newM);
-    setAshishBoard(newA);
-    setCalledNumbers([]);
-    setGameStatus("playing");
-    setWinner(null);
-    setWinningNumber(null);
-    setShowVictoryModal(false);
-    setLastMoveMessage(`New match started! ${nextStarter === "mithi" ? "Mithi" : "Ashish"} calls first.`);
-    if (soundEnabled) playSound("pop");
-
     try {
-      await supabase.from("bingo_active_match").upsert({
-        id: "current",
-        mithi_board: newM,
-        ashish_board: newA,
-        called_numbers: [],
-        current_turn: nextStarter,
-        starter: nextStarter,
-        status: "playing",
-        winner: null,
-        winning_number: null,
-        updated_at: new Date().toISOString()
-      });
-    } catch {}
+      const nextStarter = forceStarter || (starter === "mithi" ? "ashish" : "mithi");
+      const newM = generateBoard();
+      const newA = generateBoard();
+
+      dismissedMatchRef.current = null;
+      setShowVictoryModal(false);
+
+      setStarter(nextStarter);
+      setCurrentTurn(nextStarter);
+      setMithiBoard(newM);
+      setAshishBoard(newA);
+      setCalledNumbers([]);
+      setGameStatus("playing");
+      setWinner(null);
+      setWinningNumber(null);
+      setLastMoveMessage(`New match started! ${nextStarter === "mithi" ? "Mithi" : "Ashish"} calls first.`);
+      if (soundEnabled) playSound("pop");
+
+      try {
+        await supabase.from("bingo_active_match").upsert({
+          id: "current",
+          mithi_board: newM,
+          ashish_board: newA,
+          called_numbers: [],
+          current_turn: nextStarter,
+          starter: nextStarter,
+          status: "playing",
+          winner: null,
+          winning_number: null,
+          updated_at: new Date().toISOString()
+        });
+      } catch (err) {
+        console.warn("Reset match error:", err);
+      }
+    } catch (err) {
+      console.error("handleNewMatch error:", err);
+    }
   };
 
   // Re-shuffle a player's board before game begins
   const handleShuffleBoard = async (player) => {
-    if (calledNumbers.length > 0) return;
+    if (safeCalledNumbers.length > 0) return;
     let newM = mithiBoard;
     let newA = ashishBoard;
     if (player === "mithi") {
@@ -355,20 +493,20 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
   };
 
   // Animated counters
-  const displayTotal = useCountUp(stats.total_games, 400);
-  const displayMithi = useCountUp(stats.mithi_wins, 400);
-  const displayAshish = useCountUp(stats.ashish_wins, 400);
-  const displayDraws = useCountUp(stats.draws, 400);
+  const displayTotal = useCountUp(stats?.total_games || 0, 400);
+  const displayMithi = useCountUp(stats?.mithi_wins || 0, 400);
+  const displayAshish = useCountUp(stats?.ashish_wins || 0, 400);
+  const displayDraws = useCountUp(stats?.draws || 0, 400);
 
-  // Render player board with privacy gate:
-  // Mithi board is ONLY visible to Bhargavi account (activeViewer === "mithi")
-  // Ashish board is ONLY visible to Ashish account (activeViewer === "ashish")
+  // Render individual player card
   const renderBoard = (playerId, playerName, board, evaluation) => {
     const isCurrentTurn = currentTurn === playerId && gameStatus === "playing";
     const isMithi = playerId === "mithi";
     const isMyBoard = activeViewer === playerId;
     const accentColor = isMithi ? "#C92F6D" : "#674ead";
     const lightBg = isMithi ? "#fff0f5" : "#f4efff";
+    const safeBoard = Array.isArray(board) ? board : [];
+    const safeEval = evaluation || { lineCount: 0, winningIndices: new Set() };
 
     return (
       <div
@@ -412,11 +550,11 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
           </div>
         </div>
 
-        {/* B - I - N - G - O Letter Track (Always visible so both see each other's strike progress) */}
+        {/* B - I - N - G - O Letter Track */}
         <div className="bingo-strip-container">
           <div className="bingo-letter-track">
             {BINGO_LETTERS.map((letter, idx) => {
-              const isStruck = evaluation.lineCount > idx;
+              const isStruck = safeEval.lineCount > idx;
               return (
                 <div
                   key={letter}
@@ -431,18 +569,18 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
           </div>
 
           <div className="lines-count-pill" style={{ color: accentColor, background: lightBg }}>
-            <strong>{Math.min(5, evaluation.lineCount)}/5</strong> lines struck
+            <strong>{Math.min(5, safeEval.lineCount)}/5</strong> lines struck
           </div>
         </div>
 
-        {/* 5x5 Grid Area: VISIBLE IF LOGGED IN AS THIS PLAYER; CONCEALED IF OPPONENT */}
+        {/* 5x5 Grid Area */}
         <div className="grid-wrapper">
           {isMyBoard ? (
             <div className="bingo-board-grid">
-              {board.map((num, idx) => {
+              {safeBoard.map((num, idx) => {
                 const isCalled = calledSet.has(num);
-                const isInCompletedLine = evaluation.winningIndices.has(idx);
-                const isLastCalled = calledNumbers.length > 0 && calledNumbers[calledNumbers.length - 1] === num;
+                const isInCompletedLine = safeEval.winningIndices.has(idx);
+                const isLastCalled = safeCalledNumbers.length > 0 && safeCalledNumbers[safeCalledNumbers.length - 1] === num;
                 const canClick = isCurrentTurn && !isCalled && gameStatus === "playing";
 
                 return (
@@ -470,7 +608,6 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
               })}
             </div>
           ) : (
-            /* CONCEALED OPPONENT GRID */
             <div className="secret-board-wrapper">
               <div className="secret-card-inner">
                 <div className="secret-badge" style={{ color: accentColor, background: lightBg }}>
@@ -487,12 +624,11 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
                     : "Only visible on Ashish's account. Number placements remain confidential while B-I-N-G-O strike lines update live above."}
                 </p>
                 <div className="secret-stats-pill">
-                  <span><strong>{calledNumbers.length}</strong> numbers called</span>
+                  <span><strong>{safeCalledNumbers.length}</strong> numbers called</span>
                   <span>•</span>
-                  <span><strong>{evaluation.lineCount}/5</strong> lines struck</span>
+                  <span><strong>{safeEval.lineCount}/5</strong> lines struck</span>
                 </div>
 
-                {/* Local pass-and-play button if sharing a single phone */}
                 <button
                   type="button"
                   className="pass-device-btn"
@@ -508,7 +644,7 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
 
         {/* Board Bottom Controls */}
         <div className="board-bottom-bar">
-          {isMyBoard && calledNumbers.length === 0 ? (
+          {isMyBoard && safeCalledNumbers.length === 0 ? (
             <button
               type="button"
               className="shuffle-mini-btn"
@@ -519,13 +655,17 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
             </button>
           ) : (
             <span className="board-stat-note">
-              {evaluation.lineCount >= 5 ? "🎉 BINGO ACHIEVED!" : `${5 - Math.min(5, evaluation.lineCount)} more line${5 - evaluation.lineCount === 1 ? "" : "s"} to win`}
+              {safeEval.lineCount >= 5 ? "🎉 BINGO ACHIEVED!" : `${5 - Math.min(5, safeEval.lineCount)} more line${5 - safeEval.lineCount === 1 ? "" : "s"} to win`}
             </span>
           )}
         </div>
       </div>
     );
   };
+
+  const normWinner = (winner || "").toLowerCase();
+  const isMithiWinner = normWinner === "mithi" || normWinner === "bhargavi";
+  const isAshishWinner = normWinner === "ashish";
 
   return (
     <div className="tracker-shell" style={{ fontFamily: "'DM Sans', -apple-system, sans-serif", minHeight: "100vh", padding: "32px 20px", color: "#55102e" }}>
@@ -639,7 +779,6 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
           flex-wrap: wrap;
         }
 
-        /* App Navigation Switcher */
         .app-nav-tabs {
           display: inline-flex;
           background: rgba(247, 206, 222, .68);
@@ -814,7 +953,7 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
           font-size: 11px;
         }
 
-        /* Banner Notice */
+        /* Match Announcer */
         .match-announcer {
           display: flex;
           align-items: center;
@@ -1192,25 +1331,28 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
           box-shadow: 0 2px 8px rgba(201, 47, 109, 0.3);
         }
 
-        /* Modal Overlays */
+        /* Modal Overlays with safe mobile scrolling */
         .modal-backdrop {
           position: fixed;
           inset: 0;
-          z-index: 100;
-          background: rgba(45, 15, 27, 0.45);
+          z-index: 999;
+          background: rgba(45, 15, 27, 0.52);
           backdrop-filter: blur(4px);
           display: grid;
           place-items: center;
           padding: 16px;
+          overflow-y: auto;
           animation: fade-in 0.2s ease;
         }
         .modal-card {
-          width: min(100%, 480px);
+          width: min(100%, 460px);
+          max-height: 90vh;
+          overflow-y: auto;
           background: #fff;
           border-radius: 28px;
           border: 2px solid #ffe5ec;
           box-shadow: 0 20px 48px rgba(155, 63, 90, 0.25);
-          padding: 28px;
+          padding: 28px 24px;
           position: relative;
           text-align: center;
           animation: pop-up 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -1222,12 +1364,17 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
           border: none;
           background: #fff0f5;
           color: #a2647d;
-          width: 32px;
-          height: 32px;
+          width: 34px;
+          height: 34px;
           border-radius: 50%;
           cursor: pointer;
           display: grid;
           place-items: center;
+          transition: background 0.15s ease, color 0.15s ease;
+        }
+        .modal-close-btn:hover {
+          background: #ffdce9;
+          color: #C92F6D;
         }
         .victory-mascot-ring {
           width: 88px;
@@ -1277,6 +1424,7 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
           display: flex;
           gap: 10px;
           justify-content: center;
+          flex-wrap: wrap;
         }
 
         /* Floating background shapes */
@@ -1492,7 +1640,9 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
             <Sparkles size={16} color="#C92F6D" />
             <span>
               {gameStatus === "gameover" ? (
-                <strong>Game Over! {winner === "mithi" ? "🌸 Mithi is the Bingo Champion!" : winner === "ashish" ? "⚡ Ashish is the Bingo Champion!" : "🤝 It's a thrilling Draw!"}</strong>
+                <strong>
+                  Game Over! {isMithiWinner ? "🌸 Mithi is the Bingo Champion!" : isAshishWinner ? "⚡ Ashish is the Bingo Champion!" : "🤝 It's a thrilling Draw!"}
+                </strong>
               ) : (
                 <>
                   Turn: <strong style={{ color: currentTurn === "mithi" ? "#C92F6D" : "#674ead" }}>
@@ -1504,7 +1654,7 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
           </div>
 
           <div className="numbers-called-pill">
-            {calledNumbers.length}/25 called
+            {safeCalledNumbers.length}/25 called
           </div>
         </div>
 
@@ -1515,7 +1665,7 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
         </div>
 
         {/* Called Numbers Stream */}
-        {calledNumbers.length > 0 && (
+        {safeCalledNumbers.length > 0 && (
           <section className="called-history-card">
             <div className="history-card-header">
               <div className="history-title">
@@ -1523,13 +1673,13 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
                 <span>Called Numbers Stream (Chronological)</span>
               </div>
               <small style={{ color: "#a2647d", fontSize: 11 }}>
-                Latest: <strong>#{calledNumbers[calledNumbers.length - 1]}</strong>
+                Latest: <strong>#{safeCalledNumbers[safeCalledNumbers.length - 1]}</strong>
               </small>
             </div>
 
             <div className="called-chips-stream">
-              {calledNumbers.map((num, i) => {
-                const isRecent = i === calledNumbers.length - 1;
+              {safeCalledNumbers.map((num, i) => {
+                const isRecent = i === safeCalledNumbers.length - 1;
                 return (
                   <span key={num} className={`called-chip ${isRecent ? "recent" : ""}`}>
                     #{num}
@@ -1548,9 +1698,10 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
             <button
               type="button"
               className="modal-close-btn"
-              onClick={() => setShowVictoryModal(false)}
+              onClick={handleCloseVictoryModal}
+              aria-label="Close victory notice"
             >
-              <X size={16} />
+              <X size={18} />
             </button>
 
             <div className="victory-mascot-ring">
@@ -1561,14 +1712,14 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
               <Trophy size={12} /> BINGO FLASH VICTORY
             </div>
 
-            <h2 className="victory-title" style={{ color: winner === "mithi" ? "#C92F6D" : "#674ead" }}>
-              {winner === "mithi" ? "🌸 Mithi Wins!" : winner === "ashish" ? "⚡ Ashish Wins!" : "🤝 It's a Tie!"}
+            <h2 className="victory-title" style={{ color: isMithiWinner ? "#C92F6D" : isAshishWinner ? "#674ead" : "#3d2f36" }}>
+              {isMithiWinner ? "🌸 Mithi Wins!" : isAshishWinner ? "⚡ Ashish Wins!" : "🤝 It's a Tie!"}
             </h2>
 
             <p className="victory-sub">
-              {winner === "mithi"
+              {isMithiWinner
                 ? "Brilliant play, Bhargavi! You unlocked all 5 letters of B-I-N-G-O first!"
-                : winner === "ashish"
+                : isAshishWinner
                 ? "Sharp moves, Ashish! You conquered all 5 strike lines!"
                 : "Both players struck 5 lines simultaneously! What a match!"}
             </p>
@@ -1576,19 +1727,19 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
             <div className="match-recap-box">
               <div className="recap-item">
                 Winning Number
-                <div className="recap-val">#{winningNumber}</div>
+                <div className="recap-val">#{winningNumber || "—"}</div>
               </div>
               <div className="recap-item">
                 Total Calls
-                <div className="recap-val">{calledNumbers.length} turns</div>
+                <div className="recap-val">{safeCalledNumbers.length} turns</div>
               </div>
               <div className="recap-item">
                 Mithi Completed
-                <div className="recap-val">{mithiEval.lineCount} lines</div>
+                <div className="recap-val">{mithiEval?.lineCount || 0} lines</div>
               </div>
               <div className="recap-item">
                 Ashish Completed
-                <div className="recap-val">{ashishEval.lineCount} lines</div>
+                <div className="recap-val">{ashishEval?.lineCount || 0} lines</div>
               </div>
             </div>
 
@@ -1605,7 +1756,7 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
                 type="button"
                 className="tool-btn"
                 style={{ padding: "10px 18px", fontSize: 13 }}
-                onClick={() => setShowVictoryModal(false)}
+                onClick={handleCloseVictoryModal}
               >
                 Inspect Boards
               </button>
@@ -1663,5 +1814,13 @@ export default function BingoGame({ currentUser = "mithi", onNavigateToTracker, 
         </div>
       )}
     </div>
+  );
+}
+
+export default function BingoGame(props) {
+  return (
+    <BingoErrorBoundary>
+      <BingoGameContent {...props} />
+    </BingoErrorBoundary>
   );
 }
