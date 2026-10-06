@@ -12,23 +12,48 @@ export default function Login({ onSuccess }) {
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState("");
 
-  const signIn = () => {
+  const authenticate = (userKey, passKey) => {
+    const u = (userKey || "").trim().toLowerCase();
+    const p = (passKey || "").trim().toLowerCase();
+    if ((u === "bhargavi" || u === "mithi") && (p === "ashish" || p === "bhargavi")) {
+      return { role: "mithi", username: "Bhargavi" };
+    }
+    if (u === "ashish" && (p === "bhargavi" || p === "ashish")) {
+      return { role: "ashish", username: "Ashish" };
+    }
+    return null;
+  };
+
+  const signIn = (role = "mithi", name = "Bhargavi") => {
     setError("");
     localStorage.setItem("neet_tracker_authed", "true");
-    onSuccess();
+    localStorage.setItem("neet_tracker_user", role);
+    localStorage.setItem("neet_tracker_username", name);
+    onSuccess(role, name);
   };
 
   const handleSubmit = (event) => {
     event.preventDefault();
-    if (username === VALID_USERNAME && password === VALID_PASSWORD) signIn();
-    else setError("That name or study passkey is not correct.");
+    const result = authenticate(username, password);
+    if (result) {
+      signIn(result.role, result.username);
+    } else {
+      setError("Incorrect aspirant ID or study passkey. Try Bhargavi or Ashish.");
+    }
   };
 
-  const quickEnter = () => {
-    setUsername(VALID_USERNAME);
-    setPassword(VALID_PASSWORD);
-    signIn();
+  const quickEnter = (asRole = "mithi") => {
+    if (asRole === "ashish") {
+      setUsername("Ashish");
+      setPassword("Bhargavi");
+      signIn("ashish", "Ashish");
+    } else {
+      setUsername("Bhargavi");
+      setPassword("Ashish");
+      signIn("mithi", "Bhargavi");
+    }
   };
+
 
   return (
     <div className="bloom-login">
@@ -119,7 +144,7 @@ export default function Login({ onSuccess }) {
             <span className="field-label">Aspirant ID or name</span>
             <span className="field-control">
               <BookOpen size={19} strokeWidth={2} />
-              <input value={username} onChange={event => setUsername(event.target.value)} placeholder="e.g. Bhargavi" autoFocus />
+              <input value={username} onChange={event => setUsername(event.target.value)} placeholder="e.g. Bhargavi or Ashish" autoFocus />
             </span>
           </label>
           <label className="field-row">
@@ -143,7 +168,10 @@ export default function Login({ onSuccess }) {
           {error && <p className="login-error">{error}</p>}
           <div className="login-actions">
             <button className="primary-login" type="submit">Let&apos;s study <Sparkles size={17} /></button>
-            <button className="quick-login" type="button" onClick={quickEnter}><Sparkles size={16} /> Quick enter Bhargavi&apos;s tracker</button>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <button className="quick-login" type="button" onClick={() => quickEnter("mithi")}><Sparkles size={14} /> Enter as Bhargavi</button>
+              <button className="quick-login" type="button" onClick={() => quickEnter("ashish")}><Flame size={14} /> Enter as Ashish</button>
+            </div>
           </div>
         </form>
 

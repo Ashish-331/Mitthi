@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2, RotateCcw, BookOpen, FlaskConical, Search, LogOut, Flower2, Ribbon, Sparkles, Star, Cloud, Target, Dna, CalendarDays, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2, RotateCcw, BookOpen, FlaskConical, Search, LogOut, Flower2, Ribbon, Sparkles, Star, Cloud, Target, Dna, CalendarDays, X, Gamepad2 } from "lucide-react";
 import { supabase } from "../lib/supabaseClient";
 import mascotLogo from "../../study_bloom_bunny_mascot_logo.png";
 import {
@@ -448,7 +448,7 @@ function ChapterRow({ data, onUpdate, onDelete, accent }) {
   );
 }
 
-export default function NeetTracker({ onLogout }) {
+export default function NeetTracker({ onLogout, onNavigateToBingo }) {
   const [chapters, setChapters] = useState(() => ({ ...buildSkeleton("Physics"), ...buildSkeleton("Chemistry"), ...buildSkeleton("Biology") }));
   const [hydrated, setHydrated] = useState(false);
   const [saveError, setSaveError] = useState(false);
@@ -567,7 +567,13 @@ export default function NeetTracker({ onLogout }) {
         .brand-badge small { margin-left: 3px; color: #8d7b85; letter-spacing: 0; }
         .brand-title { margin: 5px 0 0; color: #3d2f36; font: 700 clamp(22px, 4vw, 31px)/1.05 'Quicksand', sans-serif; letter-spacing: -.04em; }
         .brand-subtitle { margin: 5px 0 0; color: #5a4a52; font-size: 13px; font-weight: 700; }
-        .header-actions { display: flex; align-items: center; gap: 9px; }
+        .header-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+        .app-nav-tabs { display: inline-flex; background: rgba(247, 206, 222, .68); border-radius: 14px; padding: 4px; border: 1px solid rgba(255,255,255,.75); box-shadow: 0 2px 8px rgba(155, 63, 90, 0.05); }
+        .nav-tab-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 10px; border: none; background: transparent; color: #9F607A; font: 700 12.5px 'Quicksand', sans-serif; cursor: pointer; transition: all 0.2s ease; text-decoration: none; }
+        .nav-tab-btn.active { background: #fff; color: #C92F6D; box-shadow: 0 2px 6px rgba(201, 47, 109, 0.12); }
+        .nav-tab-btn:hover:not(.active) { color: #65102F; background: rgba(255,255,255,0.4); }
+        .bingo-break-btn { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border: 1.5px dashed #ff8fab; border-radius: 14px; background: rgba(255,255,255,0.92); color: #8D1749; cursor: pointer; font: 700 11.5px 'Quicksand', sans-serif; transition: all 0.2s ease; white-space: nowrap; }
+        .bingo-break-btn:hover { background: #fff0f5; border-color: #ff4d6d; color: #ff4d6d; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(255, 143, 171, 0.2); }
         .sync-pill { display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border: 1px solid #ffe5ec; border-radius: 999px; background: rgba(255,255,255,.82); box-shadow: 0 3px 8px rgba(255,143,171,.08); color: #5a4a52; font: 700 11px 'Quicksand', sans-serif; }
         .sync-dot { width: 7px; height: 7px; border-radius: 50%; background: #6fcf8d; box-shadow: 0 0 0 0 rgba(111,207,141,.4); animation: sync-pulse 1.8s infinite; }
         .logout-button { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 1px solid #ffe5ec; border-radius: 999px; color: #5a4a52; background: #fff; box-shadow: 0 3px 8px rgba(255,143,171,.08); cursor: pointer; font: 700 11px 'Quicksand', sans-serif; }
@@ -704,6 +710,14 @@ export default function NeetTracker({ onLogout }) {
             </div>
           </div>
           <div className="header-actions">
+            <nav className="app-nav-tabs" aria-label="Page navigation">
+              <button type="button" className="nav-tab-btn active">
+                <BookOpen size={14} /> <span>Study Tracker</span>
+              </button>
+              <button type="button" className="nav-tab-btn" onClick={onNavigateToBingo}>
+                <Sparkles size={14} /> <span>Flash Bingo</span>
+              </button>
+            </nav>
             <div className="sync-pill"><span className="sync-dot" /> <span>{saveError ? "Needs attention" : hydrated ? "Saved" : "Saving"}</span><Cloud size={14} strokeWidth={2} /></div>
             <button className="logout-button" onClick={handleLogout}><LogOut size={14} /> Log out</button>
           </div>
@@ -719,7 +733,12 @@ export default function NeetTracker({ onLogout }) {
               <p className="cheer-text">Keep going, Bhargavi! You&apos;re doing amazing. ({completedChapters}/{totalChapters} completed)</p>
             </div>
           </div>
-          <div className="target-callout"><Target size={16} color="#ff4d6d" /><span>Today&apos;s target:</span> <strong>2 race runs &amp; 10 PYQs</strong></div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <button type="button" className="bingo-break-btn" onClick={onNavigateToBingo}>
+              <Gamepad2 size={14} color="#ff4d6d" /> <span>Study break with Ashish? Play Bingo! 🎲</span>
+            </button>
+            <div className="target-callout"><Target size={16} color="#ff4d6d" /><span>Today&apos;s target:</span> <strong>2 race runs &amp; 10 PYQs</strong></div>
+          </div>
         </section>
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
